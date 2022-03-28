@@ -22,15 +22,12 @@
         let offset = 0;
         return function(length) {
             console.log(`offset=${offset} lenght=${length}`);
-            if (offset < total) {
+            // send the pattern 5 times
+            if (offset < 5*total) {
                 let buf = new Int8Array(length);
                 for (let i = 0; i < length/2; i++) {
-                    let ind = Math.floor(offset/samplesPerBit);
-                    if (ind < pattern.length) {
-                        buf[i*2] = (pattern[ind] == 0) ? 0 : 127;
-                    } else {
-                        buf[i*2] = 0;
-                    }
+                    let ind = Math.floor(offset/samplesPerBit) % pattern.length;
+                    buf[i*2] = (pattern[ind] == 0) ? 0 : 127;
                     buf[i*2+1] = 0;
                     offset++;
                 }
@@ -132,7 +129,7 @@
             </div>
         </div>
     </div>
-    <div class="footer">v1.0 (<a href="https://github.com/rgerganov/tesla-opener">source</a>)</div>
+    <div class="footer">v1.1 (<a href="https://github.com/rgerganov/tesla-opener">source</a>)</div>
 </div>
 </body>
 </html>
